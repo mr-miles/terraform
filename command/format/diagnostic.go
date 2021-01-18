@@ -115,6 +115,59 @@ func Diagnostic(diag tfdiags.Diagnostic, sources map[string][]byte, color *color
 	return ruleBuf.String()
 }
 
+// DiagnosticPlain is an alternative to Diagnostic which minimises the use of
+// extra non-text characters.
+//
+// It is intended for use in automation and other contexts in which diagnostic
+// messages are parsed from the Terraform output.
+func DiagnosticPlain(diag tfdiags.Diagnostic, sources map[string][]byte, color *colorstring.Colorize, width int) string {
+	if diag == nil {
+		// No good reason to pass a nil diagnostic in here...
+		return ""
+	}
+
+	var buf bytes.Buffer
+
+	switch diag.Severity() {
+	case tfdiags.Error:
+		buf.WriteString(color.Color("\n[bold][red]Error: [reset]"))
+	case tfdiags.Warning:
+		buf.WriteString(color.Color("\n[bold][yellow]Warning: [reset]"))
+	default:
+		// Clear out any coloring that might be applied by Terraform's UI helper,
+		// so our result is not context-sensitive.
+		buf.WriteString(color.Color("\n[reset]"))
+	}
+
+	desc := diag.Description()
+	sourceRefs := diag.Source()
+
+	// We don't wrap the summary, since we expect it to be terse, and since
+	// this is where we put the text of a native Go error it may not always
+	// be pure text that lends itself well to word-wrapping.
+	fmt.Fprintf(&buf, color.Color("[bold]%s[reset]\n\n"), desc.Summary)
+
+	if sourceRefs.Subject != nil {
+		buf = appendSourceSnippets(buf, diag, sources, color)
+	}
+
+	if desc.Detail != "" {
+		if width > 1 {
+			lines := strings.Split(desc.Detail, "\n")
+			for _, line := range lines {
+				if !strings.HasPrefix(line, " ") {
+					line = wordwrap.WrapString(line, uint(width-1))
+				}
+				fmt.Fprintf(&buf, "%s\n", line)
+			}
+		} else {
+			fmt.Fprintf(&buf, "%s\n", desc.Detail)
+		}
+	}
+
+	return buf.String()
+}
+
 // DiagnosticWarningsCompact is an alternative to Diagnostic for when all of
 // the given diagnostics are warnings and we want to show them compactly,
 // with only two lines per warning and excluding all of the detail information.

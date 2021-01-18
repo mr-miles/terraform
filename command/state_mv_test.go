@@ -303,6 +303,73 @@ func TestStateMv_resourceToInstanceErr(t *testing.T) {
 		t.Errorf("wrong output\n%s", cmp.Diff(errOutput, expectedErr))
 	}
 }
+
+func TestStateMv_resourceToInstanceErrInAutomation(t *testing.T) {
+	state := states.BuildState(func(s *states.SyncState) {
+		s.SetResourceInstanceCurrent(
+			addrs.Resource{
+				Mode: addrs.ManagedResourceMode,
+				Type: "test_instance",
+				Name: "foo",
+			}.Instance(addrs.IntKey(0)).Absolute(addrs.RootModuleInstance),
+			&states.ResourceInstanceObjectSrc{
+				AttrsJSON: []byte(`{"id":"bar","foo":"value","bar":"value"}`),
+				Status:    states.ObjectReady,
+			},
+			addrs.AbsProviderConfig{
+				Provider: addrs.NewDefaultProvider("test"),
+				Module:   addrs.RootModule,
+			},
+		)
+		s.SetResourceProvider(
+			addrs.Resource{
+				Mode: addrs.ManagedResourceMode,
+				Type: "test_instance",
+				Name: "bar",
+			}.Absolute(addrs.RootModuleInstance),
+			addrs.AbsProviderConfig{
+				Provider: addrs.NewDefaultProvider("test"),
+				Module:   addrs.RootModule,
+			},
+		)
+	})
+	statePath := testStateFile(t, state)
+
+	p := testProvider()
+	ui := new(cli.MockUi)
+	c := &StateMvCommand{
+		StateMeta{
+			Meta: Meta{
+				testingOverrides:    metaOverridesForProvider(p),
+				Ui:                  ui,
+				RunningInAutomation: true,
+			},
+		},
+	}
+
+	args := []string{
+		"-state", statePath,
+		"test_instance.foo",
+		"test_instance.bar[0]",
+	}
+
+	if code := c.Run(args); code == 0 {
+		t.Fatalf("expected error output, got:\n%s", ui.OutputWriter.String())
+	}
+
+	expectedErr := `Error: Invalid target address
+
+Cannot move test_instance.foo to test_instance.bar[0]: the source is a whole
+resource (not a resource instance) so the target must also be a whole
+resource.
+`
+	errOutput := ui.ErrorWriter.String()
+	if errOutput != expectedErr {
+		t.Errorf("Unexpected diff.\ngot:\n%s\nwant:\n%s\n", errOutput, expectedErr)
+		t.Errorf("%s", cmp.Diff(errOutput, expectedErr))
+	}
+}
+
 func TestStateMv_instanceToResource(t *testing.T) {
 	state := states.BuildState(func(s *states.SyncState) {
 		s.SetResourceInstanceCurrent(

@@ -656,7 +656,13 @@ func (m *Meta) showDiagnostics(vals ...interface{}) {
 	}
 
 	for _, diag := range diags {
-		msg := format.Diagnostic(diag, m.configSources(), m.Colorize(), outputWidth)
+		var msg string
+		if m.RunningInAutomation {
+			msg = format.DiagnosticPlain(diag, m.configSources(), m.Colorize(), outputWidth)
+		} else {
+			msg = format.Diagnostic(diag, m.configSources(), m.Colorize(), outputWidth)
+		}
+
 		switch diag.Severity() {
 		case tfdiags.Error:
 			m.Ui.Error(strings.TrimSpace(msg))

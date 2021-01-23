@@ -310,6 +310,10 @@ NeedProvider:
 			preferredHashes = lock.PreferredHashes()
 		}
 
+		if cached := i.targetDir.ProviderVersion(provider, version); cached != nil {
+			continue
+		}
+
 		if i.globalCacheDir != nil {
 			// Step 3a: If our global cache already has this version available then
 			// we'll just link it in.

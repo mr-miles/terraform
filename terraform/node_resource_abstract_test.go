@@ -236,3 +236,77 @@ func TestNodeAbstractResource_ReadResourceInstanceStateDeposed(t *testing.T) {
 		})
 	}
 }
+
+func TestNodeAbstractResource_ReadResourceInstanceState_sensitive(t *testing.T) {
+	mockProvider := mockProviderWithResourceTypeSchema("aws_instance", &configschema.Block{
+		Attributes: map[string]*configschema.Attribute{
+			"id": {
+				Type:     cty.String,
+				Optional: true,
+			},
+			"secret": {
+				Type:      cty.String,
+				Optional:  true,
+				Sensitive: true,
+			},
+		},
+	})
+
+	tests := map[string]struct {
+		State              *states.State
+		Node               *NodeAbstractResource
+		ExpectedInstanceId string
+		ExpectedSecret     cty.Value
+	}{
+		"ReadState gets primary instance state": {
+			State: states.BuildState(func(s *states.SyncState) {
+				providerAddr := addrs.AbsProviderConfig{
+					Provider: addrs.NewDefaultProvider("aws"),
+					Module:   addrs.RootModule,
+				}
+				oneAddr := addrs.Resource{
+					Mode: addrs.ManagedResourceMode,
+					Type: "aws_instance",
+					Name: "bar",
+				}.Absolute(addrs.RootModuleInstance)
+				s.SetResourceProvider(oneAddr, providerAddr)
+				s.SetResourceInstanceCurrent(oneAddr.Instance(addrs.NoKey), &states.ResourceInstanceObjectSrc{
+					Status:             states.ObjectReady,
+					AttrsJSON:          []byte(`{"id":"i-abc123","secret":"encrypted-secret-value"}`),
+					AttrSensitivePaths: []cty.PathValueMarks{{Path: cty.GetAttrPath("secret"), Marks: cty.NewValueMarks("sensitive")}},
+				}, providerAddr)
+			}),
+			Node: &NodeAbstractResource{
+				Addr:             mustConfigResourceAddr("aws_instance.bar"),
+				ResolvedProvider: mustProviderConfig(`provider["registry.terraform.io/hashicorp/aws"]`),
+			},
+			ExpectedInstanceId: "i-abc123",
+			ExpectedSecret:     cty.StringVal("UNREDACTED").Mark("sensitive"),
+		},
+	}
+
+	for k, test := range tests {
+		t.Run(k, func(t *testing.T) {
+			ctx := new(MockEvalContext)
+			ctx.StateState = test.State.SyncWrapper()
+			ctx.PathPath = addrs.RootModuleInstance
+			ctx.ProviderSchemaSchema = mockProvider.ProviderSchema()
+			ctx.ProviderProvider = providers.Interface(mockProvider)
+
+			got, err := test.Node.readResourceInstanceState(ctx, test.Node.Addr.Resource.Instance(addrs.NoKey).Absolute(addrs.RootModuleInstance))
+			if err != nil {
+				t.Fatalf("[%s] Got err: %#v", k, err.Error())
+			}
+
+			expected := test.ExpectedInstanceId
+
+			if !(got != nil && got.Value.GetAttr("id") == cty.StringVal(expected)) {
+				t.Fatalf("[%s] Expected output with ID %#v, got: %#v", k, expected, got.Value.GetAttr("id"))
+			}
+
+			if !(got != nil && got.Value.GetAttr("secret") == test.ExpectedSecret) {
+				t.Fatalf("[%s] Expected output with secret %#v, got: %#v", k, expectedSecret, got.Value.GetAttr("secret"))
+			}
+		})
+	}
+}

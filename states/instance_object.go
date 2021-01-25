@@ -87,10 +87,14 @@ const (
 // so the caller must not mutate the receiver any further once once this
 // method is called.
 func (o *ResourceInstanceObject) Encode(ty cty.Type, schemaVersion uint64) (*ResourceInstanceObjectSrc, error) {
+
+	// any values marked as sensitive here - replace
+	val, err := cty.Transform(o.Value, encryptIfNeeded)
+
 	// If it contains marks, remove these marks before traversing the
 	// structure with UnknownAsNull, and save the PathValueMarks
 	// so we can save them in state.
-	val, pvm := o.Value.UnmarkDeepWithPaths()
+	val, pvm := val.UnmarkDeepWithPaths()
 
 	// Our state serialization can't represent unknown values, so we convert
 	// them to nulls here. This is lossy, but nobody should be writing unknown
@@ -117,6 +121,15 @@ func (o *ResourceInstanceObject) Encode(ty cty.Type, schemaVersion uint64) (*Res
 		Dependencies:        o.Dependencies,
 		CreateBeforeDestroy: o.CreateBeforeDestroy,
 	}, nil
+}
+
+func encryptIfNeeded(path cty.Path, val cty.Value) (cty.Value, error) {
+
+	if val.HasMark("sensitive") {
+		return cty.StringVal("REDACTED").WithSameMarks(val), nil
+	}
+
+	return val, nil
 }
 
 // AsTainted returns a deep copy of the receiver with the status updated to

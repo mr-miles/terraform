@@ -83,11 +83,18 @@ func (os *ResourceInstanceObjectSrc) Decode(ty cty.Type) (*ResourceInstanceObjec
 	} else {
 		val, err = ctyjson.Unmarshal(os.AttrsJSON, ty)
 		// Mark the value with paths if applicable
-		if os.AttrSensitivePaths != nil {
-			val = val.MarkWithPaths(os.AttrSensitivePaths)
-		}
 		if err != nil {
 			return nil, err
+		}
+		if os.AttrSensitivePaths != nil {
+			val = val.MarkWithPaths(os.AttrSensitivePaths)
+
+			// and a chance to unencrypt state file values here
+			val, err = cty.Transform(val, decryptIfNeeded)
+
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -98,6 +105,15 @@ func (os *ResourceInstanceObjectSrc) Decode(ty cty.Type) (*ResourceInstanceObjec
 		Private:             os.Private,
 		CreateBeforeDestroy: os.CreateBeforeDestroy,
 	}, nil
+}
+
+func decryptIfNeeded(path cty.Path, val cty.Value) (cty.Value, error) {
+
+	if val.HasMark("sensitive") {
+		return cty.StringVal("UNREDACTED").WithSameMarks(val), nil
+	}
+
+	return val, nil
 }
 
 // CompleteUpgrade creates a new ResourceInstanceObjectSrc by copying the
